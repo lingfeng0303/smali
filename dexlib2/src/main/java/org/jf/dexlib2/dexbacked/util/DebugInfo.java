@@ -59,6 +59,13 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
      */
     @Nonnull public abstract Iterator<String> getParameterNames(@Nullable DexReader reader);
 
+    /**
+     * Calculate and return the private size of debuginfo.
+     *
+     * @return size in bytes
+     */
+    public abstract int getSize();
+
     public static DebugInfo newOrEmpty(@Nonnull DexBackedDexFile dexFile, int debugInfoOffset,
                                        @Nonnull DexBackedMethodImplementation methodImpl) {
         if (debugInfoOffset == 0) {
@@ -77,6 +84,11 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
 
         @Nonnull @Override public Iterator<String> getParameterNames(@Nullable DexReader reader) {
             return ImmutableSet.<String>of().iterator();
+        }
+
+        @Override
+        public int getSize() {
+            return 0;
         }
     }
 
@@ -182,7 +194,9 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
                                 String type = dexFile.getOptionalType(reader.readSmallUleb128() - 1);
                                 ImmutableStartLocal startLocal =
                                         new ImmutableStartLocal(codeAddress, register, name, type, null);
-                                locals[register] = startLocal;
+                                if (register >= 0 && register < locals.length) {
+                                    locals[register] = startLocal;
+                                }
                                 return startLocal;
                             }
                             case DebugItemType.START_LOCAL_EXTENDED: {
@@ -192,13 +206,23 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
                                 String signature = dexFile.getOptionalString(reader.readSmallUleb128() - 1);
                                 ImmutableStartLocal startLocal =
                                         new ImmutableStartLocal(codeAddress, register, name, type, signature);
-                                locals[register] = startLocal;
+                                if (register >= 0 && register < locals.length) {
+                                    locals[register] = startLocal;
+                                }
                                 return startLocal;
                             }
                             case DebugItemType.END_LOCAL: {
                                 int register = reader.readSmallUleb128();
-                                LocalInfo localInfo = locals[register];
+
                                 boolean replaceLocalInTable = true;
+                                LocalInfo localInfo;
+                                if (register >= 0 && register < locals.length) {
+                                    localInfo = locals[register];
+                                } else {
+                                    localInfo = EMPTY_LOCAL_INFO;
+                                    replaceLocalInTable = false;
+                                }
+
                                 if (localInfo instanceof EndLocal) {
                                     localInfo = EMPTY_LOCAL_INFO;
                                     // don't replace the local info in locals. The new EndLocal won't have any info at all,
@@ -216,11 +240,18 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
                             }
                             case DebugItemType.RESTART_LOCAL: {
                                 int register = reader.readSmallUleb128();
-                                LocalInfo localInfo = locals[register];
+                                LocalInfo localInfo;
+                                if (register >= 0 && register < locals.length) {
+                                    localInfo = locals[register];
+                                } else {
+                                    localInfo = EMPTY_LOCAL_INFO;
+                                }
                                 ImmutableRestartLocal restartLocal =
                                         new ImmutableRestartLocal(codeAddress, register, localInfo.getName(),
                                                 localInfo.getType(), localInfo.getSignature());
-                                locals[register] = restartLocal;
+                                if (register >= 0 && register < locals.length) {
+                                    locals[register] = restartLocal;
+                                }
                                 return restartLocal;
                             }
                             case DebugItemType.PROLOGUE_END: {
@@ -259,6 +290,15 @@ public abstract class DebugInfo implements Iterable<DebugItem> {
                     return dexFile.getOptionalString(reader.readSmallUleb128() - 1);
                 }
             };
+        }
+
+        @Override
+        public int getSize() {
+            Iterator<DebugItem> iter = iterator();
+            while(iter.hasNext()) {
+                iter.next();
+            }
+            return ((VariableSizeLookaheadIterator) iter).getReaderOffset() - debugInfoOffset;
         }
     }
 }
